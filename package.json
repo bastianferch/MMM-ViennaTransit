@@ -1,0 +1,11 @@
+{
+  "name": "mmm-viennatransit",
+  "version": "1.0.0",
+  "description": "Vienna public transport departures (Wiener Linien + ÖBB S-Bahn) for several stations in one card",
+  "main": "MMM-ViennaTransit.js",
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "hafas-client": "^6.3.6"
+  }
+}
