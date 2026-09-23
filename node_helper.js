@@ -23,7 +23,7 @@ module.exports = NodeHelper.create({
 		this.timers = {};
 		this.runs = {};
 		this.lastGood = {};	// last successful result per instance and station
-		this.lastDisruptions = {};	// last successful disruption list per instance
+		this.lastDisruptions = {};	// last successful disruption list and its time per instance
 	},
 
 	socketNotificationReceived (notification, payload) {
@@ -82,27 +82,43 @@ module.exports = NodeHelper.create({
 				return {name, minMinutes, lines: stale ? last.lines : [], error: true};
 			}
 		}));
-		const disruptions = config.showDisruptions === false ? [] : await this.disruptionsFor(id, config, stations);
+		const disruptions = config.showDisruptions === false ? [] : await this.disruptionsFor(id, config, stations, keepFor);
 		// Drop results from a loop that was superseded while it was fetching
 		if (this.runs[id] !== run) return;
 		this.sendSocketNotification("VT_DATA", {id, stations, disruptions, updated: Date.now()});
 	},
 
 	// Current Wiener Linien disruptions for the configured lines, or else the U-Bahn lines at the configured stations
-	async disruptionsFor (id, config, stations) {
+	async disruptionsFor (id, config, stations, keepFor) {
 		const configured = [].concat(config.disruptionLines ?? []).map((l) => String(l).toUpperCase());
 		const wanted = new Set(configured.length > 0
 			? configured
 			: stations.flatMap((s) => s.lines).filter((l) => l.type === "ptMetro").map((l) => l.name.toUpperCase()));
 		if (wanted.size === 0) return [];
+		const now = Date.now();
+		let list;
 		try {
-			this.lastDisruptions[id] = await this.fetchDisruptions();
+			list = await this.fetchDisruptions();
+			this.lastDisruptions[id] = {list, time: now};
 		} catch (error) {
-			// Keep the previous list rather than hiding a disruption because of one failed request
-			Log.error(`[MMM-ViennaTransit] disruptions: ${error.message}`);
+			// Keep the previous list for up to keepLastDataFor rather than hiding a disruption because of one failed request
+			const last = this.lastDisruptions[id];
+			const age = last ? now - last.time : Infinity;
+			const stale = age <= keepFor;
+			Log.error(`[MMM-ViennaTransit] disruptions: ${error.message}${stale ? ` (showing data from ${Math.round(age / 1000)}s ago)` : ""}`);
+			list = stale ? last.list : [];
 		}
-		return (this.lastDisruptions[id] ?? [])
-			.map((d) => ({...d, lines: d.lines.filter((l) => wanted.has(l.toUpperCase()))}))
+		// Only the newest disruption per line: go newest first and give each line to the first one that has it
+		const shown = new Set();
+		return list
+			// Checked on every update, so kept data drops disruptions that ended in the meantime
+			.filter((d) => !(d.since > now || d.until < now))
+			.toSorted((a, b) => b.since - a.since)
+			.map((d) => {
+				const lines = d.lines.filter((l) => wanted.has(l.toUpperCase()) && !shown.has(l.toUpperCase()));
+				for (const l of lines) shown.add(l.toUpperCase());
+				return {...d, lines};
+			})
 			.filter((d) => d.lines.length > 0);
 	},
 
@@ -110,14 +126,10 @@ module.exports = NodeHelper.create({
 		const response = await fetch(WL_TRAFFIC_URL, {signal: AbortSignal.timeout(REQUEST_TIMEOUT)});
 		if (!response.ok) throw new Error(`HTTP ${response.status}`);
 		const json = await response.json();
-		const now = Date.now();
 		const seen = new Set();
 		const disruptions = [];
 		for (const info of json.data?.trafficInfos ?? []) {
-			// Skip planned ones that have not started yet and ones already over
 			const start = Date.parse(info?.time?.start);
-			const end = Date.parse(info?.time?.end);
-			if (start > now || end < now) continue;
 			const lines = [...new Set(info?.relatedLines ?? [])].map(String);
 			const text = (info?.title ?? "").replace(/\s+/g, " ").trim();
 			const key = `${lines.join(",")}|${text}`;
@@ -125,6 +137,8 @@ module.exports = NodeHelper.create({
 			seen.add(key);
 			disruptions.push({
 				lines,
+				since: Number.isFinite(start) ? start : Date.parse(info?.time?.created) || 0,
+				until: Date.parse(info?.time?.end),	// NaN if open-ended
 				// "U3: Verspätungen" -> "Verspätungen", the line is shown as a badge
 				title: text.replace(/^[A-Z]?\d+[A-Z]?(\s*,\s*[A-Z]?\d+[A-Z]?)*:\s*/i, ""),
 				description: (info.description ?? "").replace(/\s+/g, " ").trim()

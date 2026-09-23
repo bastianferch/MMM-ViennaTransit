@@ -63,8 +63,8 @@ Add the module to the `modules` array in `config/config.js`:
 | `shortenDestination` | `22` | Cut destination names after this many characters. `0` = no cutting. |
 | `updateInterval` | `60000` | How often data is fetched, in ms. Minimum `30000`. Lower or invalid values are corrected and logged. |
 | `oebbWindow` | `90` | How many minutes ahead to request ÖBB departures. |
-| `keepLastDataFor` | `300000` | After a failed fetch, keep showing that station's last good departures for this long, in ms. They keep counting down and the ⚠ is shown. After that the station shows "Keine Daten". `0` = off. |
-| `showDisruptions` | `true` | Show current Wiener Linien disruption messages at the top of the card. If the request fails, the last known messages stay. |
+| `keepLastDataFor` | `300000` | After a failed fetch, keep showing that station's last good departures for this long, in ms. They keep counting down and the ⚠ is shown. After that the station shows "Keine Daten". The same applies to disruption messages. `0` = off. |
+| `showDisruptions` | `true` | Show current Wiener Linien disruption messages at the top of the card. Only the newest disruption per line is shown. A disruption disappears when Wiener Linien stops listing it or its end time has passed. If the request fails, the last known messages stay for `keepLastDataFor`. |
 | `disruptionLines` | `[]` | Lines to show disruptions for, e.g. `["U3", "U6", "71"]`. `[]` = the U-Bahn lines that run at your configured Wiener Linien stations. Only Wiener Linien lines work here: disruptions come from the Wiener Linien API, so S-Bahn and other ÖBB lines never show any. |
 | `pulseLeaveNow` | `true` | Make a line's next departure pulse when it is exactly `minMinutes` away, the last minute to leave for it. |
 
