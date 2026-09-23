@@ -14,6 +14,8 @@ A [MagicMirror²](https://magicmirror.builders/) module that shows departures fo
 - One row per line and direction with the next departures, e.g. `U3 Ottakring 1 · 4 · 8`
 - Line badges in the official Vienna colours (U1–U6, tram, bus, S-Bahn)
 - The minutes count down in the browser between data fetches
+- Wiener Linien disruption messages (e.g. `⚠ U3 Verspätungen`) for your U-Bahn lines at the top of the card (Wiener Linien lines only, no ÖBB/S-Bahn disruptions)
+- The next departure pulses during the last minute you can still leave to catch it (when it is exactly `minMinutes` away)
 - A red ⚠ in the header when a station can't be loaded, even if `hideEmptyStations` hides that station
 - 15 s request timeouts; a failing station doesn't affect the others
 - If a fetch fails, the last good departures stay on screen (counting down) for a configurable time, with the ⚠ shown
@@ -44,7 +46,7 @@ Add the module to the `modules` array in `config/config.js`:
 			{name: "Oberzellergasse", rbl: ["2044"], minMinutes: 2},                             // 71 → Schottenring
 			{name: "Rennweg", oebb: "8101433", products: ["suburban", "regional"], minMinutes: 8}  // S-Bahn
 		],
-		departuresPerLine: 3,
+		departuresPerLine:  3,
 		updateInterval: 60 * 1000
 	}
 }
@@ -62,6 +64,9 @@ Add the module to the `modules` array in `config/config.js`:
 | `updateInterval` | `60000` | How often data is fetched, in ms. Minimum `30000`. Lower or invalid values are corrected and logged. |
 | `oebbWindow` | `90` | How many minutes ahead to request ÖBB departures. |
 | `keepLastDataFor` | `300000` | After a failed fetch, keep showing that station's last good departures for this long, in ms. They keep counting down and the ⚠ is shown. After that the station shows "Keine Daten". `0` = off. |
+| `showDisruptions` | `true` | Show current Wiener Linien disruption messages at the top of the card. If the request fails, the last known messages stay. |
+| `disruptionLines` | `[]` | Lines to show disruptions for, e.g. `["U3", "U6", "71"]`. `[]` = the U-Bahn lines that run at your configured Wiener Linien stations. Only Wiener Linien lines work here: disruptions come from the Wiener Linien API, so S-Bahn and other ÖBB lines never show any. |
+| `pulseLeaveNow` | `true` | Make a line's next departure pulse when it is exactly `minMinutes` away, the last minute to leave for it. |
 
 ### Stations
 

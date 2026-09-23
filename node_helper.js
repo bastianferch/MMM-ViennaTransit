@@ -2,6 +2,7 @@ const NodeHelper = require("node_helper");
 const Log = require("logger");
 
 const WL_URL = "https://www.wienerlinien.at/ogd_realtime/monitor";
+const WL_TRAFFIC_URL = "https://www.wienerlinien.at/ogd_realtime/trafficInfoList?name=stoerunglang&name=stoerungkurz";
 const REQUEST_TIMEOUT = 15 * 1000;
 const MIN_UPDATE_INTERVAL = 30 * 1000;
 const DEFAULT_UPDATE_INTERVAL = 60 * 1000;
@@ -22,6 +23,7 @@ module.exports = NodeHelper.create({
 		this.timers = {};
 		this.runs = {};
 		this.lastGood = {};	// last successful result per instance and station
+		this.lastDisruptions = {};	// last successful disruption list per instance
 	},
 
 	socketNotificationReceived (notification, payload) {
@@ -80,9 +82,55 @@ module.exports = NodeHelper.create({
 				return {name, minMinutes, lines: stale ? last.lines : [], error: true};
 			}
 		}));
+		const disruptions = config.showDisruptions === false ? [] : await this.disruptionsFor(id, config, stations);
 		// Drop results from a loop that was superseded while it was fetching
 		if (this.runs[id] !== run) return;
-		this.sendSocketNotification("VT_DATA", {id, stations, updated: Date.now()});
+		this.sendSocketNotification("VT_DATA", {id, stations, disruptions, updated: Date.now()});
+	},
+
+	// Current Wiener Linien disruptions for the configured lines, or else the U-Bahn lines at the configured stations
+	async disruptionsFor (id, config, stations) {
+		const configured = [].concat(config.disruptionLines ?? []).map((l) => String(l).toUpperCase());
+		const wanted = new Set(configured.length > 0
+			? configured
+			: stations.flatMap((s) => s.lines).filter((l) => l.type === "ptMetro").map((l) => l.name.toUpperCase()));
+		if (wanted.size === 0) return [];
+		try {
+			this.lastDisruptions[id] = await this.fetchDisruptions();
+		} catch (error) {
+			// Keep the previous list rather than hiding a disruption because of one failed request
+			Log.error(`[MMM-ViennaTransit] disruptions: ${error.message}`);
+		}
+		return (this.lastDisruptions[id] ?? [])
+			.map((d) => ({...d, lines: d.lines.filter((l) => wanted.has(l.toUpperCase()))}))
+			.filter((d) => d.lines.length > 0);
+	},
+
+	async fetchDisruptions () {
+		const response = await fetch(WL_TRAFFIC_URL, {signal: AbortSignal.timeout(REQUEST_TIMEOUT)});
+		if (!response.ok) throw new Error(`HTTP ${response.status}`);
+		const json = await response.json();
+		const now = Date.now();
+		const seen = new Set();
+		const disruptions = [];
+		for (const info of json.data?.trafficInfos ?? []) {
+			// Skip planned ones that have not started yet and ones already over
+			const start = Date.parse(info?.time?.start);
+			const end = Date.parse(info?.time?.end);
+			if (start > now || end < now) continue;
+			const lines = [...new Set(info?.relatedLines ?? [])].map(String);
+			const text = (info?.title ?? "").replace(/\s+/g, " ").trim();
+			const key = `${lines.join(",")}|${text}`;
+			if (lines.length === 0 || !text || seen.has(key)) continue;
+			seen.add(key);
+			disruptions.push({
+				lines,
+				// "U3: Verspätungen" -> "Verspätungen", the line is shown as a badge
+				title: text.replace(/^[A-Z]?\d+[A-Z]?(\s*,\s*[A-Z]?\d+[A-Z]?)*:\s*/i, ""),
+				description: (info.description ?? "").replace(/\s+/g, " ").trim()
+			});
+		}
+		return disruptions;
 	},
 
 	// Wiener Linien realtime API: U-Bahn, tram, bus (RBL numbers)

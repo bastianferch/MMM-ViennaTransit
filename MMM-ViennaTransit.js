@@ -10,7 +10,10 @@ Module.register("MMM-ViennaTransit", {
 		shortenDestination: 22,
 		updateInterval: 60 * 1000,	// minimum 30 s
 		oebbWindow: 90,	// minutes to look ahead on ÖBB
-		keepLastDataFor: 5 * 60 * 1000	// after a failed fetch, keep showing the last good departures this long (ms, 0 = off)
+		keepLastDataFor: 5 * 60 * 1000,	// after a failed fetch, keep showing the last good departures this long (ms, 0 = off)
+		showDisruptions: true,	// Wiener Linien disruption messages at the top of the card
+		disruptionLines: [],	// lines to show disruptions for, e.g. ["U3", "U6"]; [] = the U-Bahn lines at your stations
+		pulseLeaveNow: true	// pulse a departure when it is exactly minMinutes away, i.e. the last minute to leave
 	},
 
 	getStyles () {
@@ -72,6 +75,12 @@ Module.register("MMM-ViennaTransit", {
 			return wrapper;
 		}
 
+		if (this.config.showDisruptions) {
+			for (const disruption of this.data_.disruptions ?? []) {
+				wrapper.appendChild(this.disruptionDom(disruption));
+			}
+		}
+
 		const now = Date.now();
 		for (const station of this.data_.stations) {
 			const lines = station.lines
@@ -115,12 +124,40 @@ Module.register("MMM-ViennaTransit", {
 
 				const times = row.insertCell();
 				times.className = "vt-times bright";
+				const leaveNow = this.config.pulseLeaveNow && line.minutes[0] === (station.minMinutes ?? 0);
 				times.innerHTML = line.minutes
-					.map((m, i) => (i === 0 ? `<span class="vt-next">${m === 0 ? "jetzt" : m}</span>` : m))
+					.map((m, i) => (i === 0 ? `<span class="vt-next${leaveNow ? " vt-leave" : ""}">${m === 0 ? "jetzt" : m}</span>` : m))
 					.join(" · ");
 			}
 			wrapper.appendChild(table);
 		}
 		return wrapper;
+	},
+
+	disruptionDom (disruption) {
+		const box = document.createElement("div");
+		box.className = "vt-disruption";
+
+		const head = document.createElement("div");
+		head.className = "vt-disruption-head bright";
+		const icon = document.createElement("i");
+		icon.className = "fas fa-triangle-exclamation vt-disruption-icon";
+		head.appendChild(icon);
+		for (const name of disruption.lines) {
+			const badge = document.createElement("span");
+			badge.className = `vt-badge ${this.lineClass({name, type: /^U\d$/i.test(name) ? "ptMetro" : ""})}`;
+			badge.textContent = name;
+			head.appendChild(badge);
+		}
+		head.appendChild(document.createTextNode(disruption.title));
+		box.appendChild(head);
+
+		if (disruption.description && disruption.description !== disruption.title) {
+			const text = document.createElement("div");
+			text.className = "vt-disruption-text xsmall dimmed";
+			text.textContent = disruption.description;
+			box.appendChild(text);
+		}
+		return box;
 	}
 });
